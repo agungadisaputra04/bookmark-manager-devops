@@ -1,49 +1,27 @@
 # Baseline Validation
 
-## Purpose
+Before containerizing the application, I first validated the developer handoff
+in a working environment.
 
-This document records the validation of the developer-provided application
-before introducing containerization and additional infrastructure.
-
-The purpose of this phase is to establish a known-good baseline. Every
-infrastructure change introduced in later phases will be validated against
-this baseline.
+The goal was simple: make sure the application, database, API, and worker are
+all working before changing the deployment model.
 
 ## Environment
 
-| Component | Configuration |
+| Component | Value |
 |---|---|
-| Operating System | Windows |
 | Node.js | 24.x |
-| PostgreSQL | 16.x |
-| Application | Node.js / Express |
+| PostgreSQL | 16 |
 | Database | `bookmark_manager` |
-| API Port | `3000` |
-| PostgreSQL Port | `5432` |
-| PostgreSQL Runtime | Docker container |
+| API | `localhost:3000` |
+| PostgreSQL | `localhost:5432` |
 
-## Validation Result
+At this stage, the API and worker still run directly on the host. PostgreSQL is
+the first component running in Docker.
 
-| Area | Validation | Result |
-|---|---|---|
-| Application | `npm install` | PASS |
-| Application | `npm test` | PASS — 12/12 tests |
-| Database | PostgreSQL container | PASS |
-| Database | PostgreSQL readiness | PASS |
-| Database | `npm run migrate` | PASS |
-| API | Application startup | PASS |
-| API | `GET /health/live` | PASS |
-| API | `GET /health/ready` | PASS |
-| Worker | Worker startup | PASS |
+## Test Result
 
-**Baseline status: READY FOR CONTAINERIZATION**
-
----
-
-## 1. Application Test
-
-The existing automated test suite was executed before introducing
-infrastructure changes.
+The existing test suite passed:
 
 ```text
 Test Suites: 2 passed
@@ -51,44 +29,29 @@ Tests:       12 passed
 Failures:    0
 ```
 
-The application test suite passes successfully.
+![Application tests](evidence/tests-passed.png)
 
-The tests use a mocked database layer, therefore this result alone does not
-prove connectivity to a real PostgreSQL instance. Database connectivity is
-validated separately in the next stages.
+The tests use a mocked database, so I also tested the application against a
+real PostgreSQL instance.
 
----
+## PostgreSQL
 
-## 2. PostgreSQL Validation
-
-PostgreSQL 16 was deployed as a Docker container with the following
-configuration:
-
-| Parameter | Value |
-|---|---|
-| Container | `bookmark-postgres` |
-| Database | `bookmark_manager` |
-| User | `bookmark_user` |
-| Port | `5432` |
-| Host mapping | `localhost:5432` |
-
-The container reached the PostgreSQL ready state successfully.
+PostgreSQL was started as a Docker container:
 
 ```text
-database system is ready to accept connections
+Container : bookmark-postgres
+Image     : postgres:16
+Database  : bookmark_manager
+Port      : 5432
 ```
 
-This confirms that the database service is operational and accepting
-connections.
+The container reached the ready state and accepted connections.
 
----
+![PostgreSQL container](evidence/postgres-running.png)
 
-## 3. Database Migration
+## Database Migration
 
-The application migration process was executed against the PostgreSQL
-container.
-
-Command:
+The application migration was then run against the PostgreSQL container:
 
 ```text
 npm run migrate
@@ -101,22 +64,17 @@ Applying migration: 001_init.sql
 All migrations applied successfully.
 ```
 
-This confirms that the application can initialize its database schema against
-a real PostgreSQL instance.
+![Database migration](evidence/migration-success.png)
 
----
+## API
 
-## 4. API Validation
-
-The API was started using the developer-provided runtime command:
+The API was started with:
 
 ```text
 npm start
 ```
 
 ### Liveness
-
-Request:
 
 ```text
 GET /health/live
@@ -130,18 +88,16 @@ Response:
 }
 ```
 
-The liveness check confirms that the API process is running.
+![API liveness](evidence/api-liveness.png)
 
 ### Readiness
-
-Request:
 
 ```text
 GET /health/ready
 ```
 
 Response:
-![alt text](image.png)
+
 ```json
 {
   "status": "ok",
@@ -149,19 +105,14 @@ Response:
 }
 ```
 
-The readiness check confirms both:
+This was the important check for the baseline because it shows that the API
+can reach the PostgreSQL database.
 
-1. The API process is running.
-2. The API can successfully connect to PostgreSQL.
+![API readiness](evidence/api-readiness.png)
 
-This is a critical baseline result because database connectivity will remain
-an important dependency when the application is containerized.
+## Worker
 
----
-
-## 5. Worker Validation
-
-The background worker was started using:
+The background worker was started with:
 
 ```text
 npm run worker
@@ -174,100 +125,46 @@ link-checker worker started. Schedule: "*/15 * * * *"
 Link-check batch complete: 0 bookmark(s) checked.
 ```
 
-The worker started successfully and remained operational.
+The worker started normally. There were no bookmarks in the database yet, so
+there was nothing to process.
 
-The worker reported zero bookmarks because the database contained no bookmark
-records during baseline validation. This is expected and is not considered a
-failure.
+![Worker startup](evidence/worker-started.png)
 
----
-
-## 6. Baseline Runtime Architecture
-
-The validated runtime consists of the Node.js API, the background worker, and
-the PostgreSQL container.
-
-```mermaid
-flowchart LR
-    Client[Client]
-
-    subgraph Host["Development Host"]
-        API["Node.js API<br/>Express :3000"]
-        Worker["Node.js Worker<br/>node-cron"]
-    end
-
-    subgraph Docker["Docker Engine"]
-        DB["PostgreSQL 16<br/>bookmark-postgres :5432"]
-    end
-
-    Client -->|HTTP| API
-    API -->|PostgreSQL connection| DB
-    Worker -->|PostgreSQL connection| DB
-```
-
-This represents the **baseline runtime only**.
-
-The API and worker are still running directly as Node.js processes on the host.
-Only PostgreSQL is currently containerized.
-
----
-
-## 7. Baseline Verification
-
-The complete validation flow is:
+## Baseline Architecture
 
 ```text
-Developer Handoff
-        │
-        ▼
-Application Tests
-        │
-        ▼
-PostgreSQL Container
-        │
-        ▼
-Database Migration
-        │
-        ▼
-API Startup
-        │
-        ├──────► /health/live
-        │
-        └──────► /health/ready
-                    │
-                    ▼
-             Database Connected
-        │
-        ▼
-Worker Startup
-        │
-        ▼
-Baseline Validated
+                    Development Host
+                           │
+             ┌─────────────┴─────────────┐
+             │                           │
+             ▼                           ▼
+       Node.js API                 Node.js Worker
+        :3000                         node-cron
+             │                           │
+             └─────────────┬─────────────┘
+                           │
+                           │ PostgreSQL
+                           ▼
+                  PostgreSQL Container
+                   bookmark-postgres
+                        :5432
 ```
 
-All validation steps completed successfully.
+## Result
 
----
+The application is working against a real PostgreSQL instance:
 
-## Conclusion
+- automated tests pass;
+- database migration succeeds;
+- API liveness works;
+- API readiness reports `database: connected`;
+- worker starts successfully.
 
-The developer-provided application has been validated successfully against a
-real PostgreSQL instance before introducing containerization for the
-application processes.
+With the baseline working, the application is ready for the next step:
 
-The baseline confirms that:
+**containerizing the API and worker.**
 
-- The automated application tests pass.
-- PostgreSQL is operational.
-- Database migrations execute successfully.
-- The API starts successfully.
-- The liveness endpoint responds successfully.
-- The readiness endpoint confirms database connectivity.
-- The background worker starts successfully.
+## Next Step
 
-The application is therefore considered:
-
-**READY FOR CONTAINERIZATION**
-
-The next phase will containerize the API and worker as separate deployment
-units while keeping PostgreSQL as a separate service.
+Containerize the API and worker as separate containers while keeping
+PostgreSQL as a separate service.
