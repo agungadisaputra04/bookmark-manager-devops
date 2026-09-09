@@ -135,7 +135,7 @@ there was nothing to process.
 At this stage, the API and worker still run directly on the development host,
 while PostgreSQL runs as a Docker container.
 
-![Baseline Architecture](architecture/baseline-architecture.png)
+![Baseline Architecture](architecture/baseline-architecture.svg)
 
 ## Result
 
