@@ -132,23 +132,10 @@ there was nothing to process.
 
 ## Baseline Architecture
 
-```text
-                    Development Host
-                           │
-             ┌─────────────┴─────────────┐
-             │                           │
-             ▼                           ▼
-       Node.js API                 Node.js Worker
-        :3000                         node-cron
-             │                           │
-             └─────────────┬─────────────┘
-                           │
-                           │ PostgreSQL
-                           ▼
-                  PostgreSQL Container
-                   bookmark-postgres
-                        :5432
-```
+At this stage, the API and worker still run directly on the development host,
+while PostgreSQL runs as a Docker container.
+
+![Baseline Architecture](architecture/baseline-architecture.png)
 
 ## Result
 
