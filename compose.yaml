@@ -1,0 +1,121 @@
+services:
+
+  postgres:
+    image: postgres:16
+    container_name: bookmark-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: bookmark_manager
+      POSTGRES_USER: bookmark_user
+      POSTGRES_PASSWORD: bookmark_pass
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - bookmark-postgres-data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bookmark_user -d bookmark_manager"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+
+  api:
+    image: bookmark-manager:local
+
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+
+    container_name: bookmark-api
+    restart: unless-stopped
+
+    environment:
+      PORT: 3000
+      NODE_ENV: production
+      DATABASE_URL: postgres://bookmark_user:bookmark_pass@postgres:5432/bookmark_manager
+      PGSSL: "false"
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: 1h
+
+    ports:
+      - "3000:3000"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    command: ["npm", "start"]
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://localhost:3000/health/live',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+
+  worker:
+    image: bookmark-manager:local
+    container_name: bookmark-worker
+    restart: unless-stopped
+
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://bookmark_user:bookmark_pass@postgres:5432/bookmark_manager
+      PGSSL: "false"
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: 1h
+      LINK_CHECK_CRON: "*/15 * * * *"
+      LINK_CHECK_TIMEOUT_MS: 5000
+      LINK_CHECK_CONCURRENCY: 5
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    command: ["npm", "run", "worker"]
+
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+
+volumes:
+  bookmark-postgres-data:
