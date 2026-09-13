@@ -1,5 +1,7 @@
 FROM node:24-bookworm-slim
 
+LABEL org.opencontainers.image.source="https://github.com/agungadisaputra04/bookmark-manager-devops"
+
 ENV NODE_ENV=production
 
 WORKDIR /app
