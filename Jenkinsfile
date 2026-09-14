@@ -59,18 +59,26 @@ pipeline {
 
         stage('Deploy') {
             steps {
-                sshagent(['vm101-deploy-ssh']) {
+                withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId: 'vm101-deploy-ssh',
+                        keyFileVariable: 'SSH_KEY',
+                        usernameVariable: 'SSH_USER'
+                    )
+                ]) {
                     sh '''
                         set -eu
 
                         echo "Deploying image: ${IMAGE_NAME}:${IMAGE_TAG}"
 
-                        scp -o StrictHostKeyChecking=yes \
-                          compose.prod.yaml \
-                          agung@192.168.50.10:/opt/bookmark-manager/compose.prod.yaml
+                        scp -i "$SSH_KEY" \
+                        -o StrictHostKeyChecking=yes \
+                        compose.prod.yaml \
+                        "$SSH_USER@192.168.50.10:/opt/bookmark-manager/compose.prod.yaml"
 
-                        ssh -o StrictHostKeyChecking=yes \
-                          agung@192.168.50.10 "
+                        ssh -i "$SSH_KEY" \
+                        -o StrictHostKeyChecking=yes \
+                        "$SSH_USER@192.168.50.10" "
                             set -eu
 
                             cd /opt/bookmark-manager
@@ -139,7 +147,6 @@ pipeline {
                 }
             }
         }
-    }
 
     post {
         always {
