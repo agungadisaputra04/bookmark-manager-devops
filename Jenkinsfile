@@ -72,10 +72,13 @@ pipeline {
 
                         echo "Deploying image: ${IMAGE_NAME}:${IMAGE_TAG}"
 
+                        echo "Copying production Compose file..."
                         scp -i "$SSH_KEY" \
                           -o StrictHostKeyChecking=yes \
                           compose.prod.yaml \
                           "$SSH_USER@192.168.50.10:/opt/bookmark-manager/compose.prod.yaml"
+
+                        echo "Connecting to deployment target..."
 
                         ssh -i "$SSH_KEY" \
                           -o StrictHostKeyChecking=yes \
@@ -86,6 +89,9 @@ set -eu
 
 cd /opt/bookmark-manager
 
+echo "Deployment target: $(hostname)"
+echo "Image tag: ${IMAGE_TAG}"
+
 echo "Pulling production images..."
 docker compose -f compose.prod.yaml pull
 
@@ -94,20 +100,22 @@ docker compose -f compose.prod.yaml up -d postgres
 
 echo "Waiting for PostgreSQL..."
 
-for i in \$(seq 1 30); do
-    status=\$(docker inspect -f '{{.State.Health.Status}}' bookmark-postgres 2>/dev/null || true)
+for i in $(seq 1 30); do
+    status=$(docker inspect -f '{{.State.Health.Status}}' bookmark-postgres 2>/dev/null || true)
 
-    if [ "\$status" = "healthy" ]; then
+    if [ "$status" = "healthy" ]; then
+        echo "PostgreSQL is healthy."
         break
     fi
 
+    echo "PostgreSQL status: ${status:-not-created} (attempt $i/30)"
     sleep 2
 done
 
-status=\$(docker inspect -f '{{.State.Health.Status}}' bookmark-postgres)
+status=$(docker inspect -f '{{.State.Health.Status}}' bookmark-postgres)
 
-if [ "\$status" != "healthy" ]; then
-    echo "PostgreSQL is not healthy"
+if [ "$status" != "healthy" ]; then
+    echo "ERROR: PostgreSQL is not healthy."
     exit 1
 fi
 
@@ -119,20 +127,23 @@ docker compose -f compose.prod.yaml up -d api worker
 
 echo "Waiting for API..."
 
-for i in \$(seq 1 30); do
-    status=\$(docker inspect -f '{{.State.Health.Status}}' bookmark-api 2>/dev/null || true)
+for i in $(seq 1 30); do
+    status=$(docker inspect -f '{{.State.Health.Status}}' bookmark-api 2>/dev/null || true)
 
-    if [ "\$status" = "healthy" ]; then
+    if [ "$status" = "healthy" ]; then
+        echo "API is healthy."
         break
     fi
 
+    echo "API status: ${status:-not-created} (attempt $i/30)"
     sleep 2
 done
 
-status=\$(docker inspect -f '{{.State.Health.Status}}' bookmark-api)
+status=$(docker inspect -f '{{.State.Health.Status}}' bookmark-api)
 
-if [ "\$status" != "healthy" ]; then
-    echo "API is not healthy"
+if [ "$status" != "healthy" ]; then
+    echo "ERROR: API is not healthy."
+    docker logs --tail 50 bookmark-api || true
     exit 1
 fi
 
@@ -145,6 +156,8 @@ docker exec bookmark-api node -e "
     ).on('error', () => process.exit(1))
 "
 
+echo "API liveness check passed."
+
 echo "Checking API readiness..."
 
 docker exec bookmark-api node -e "
@@ -154,9 +167,32 @@ docker exec bookmark-api node -e "
     ).on('error', () => process.exit(1))
 "
 
-echo "Deployment successful."
+echo "API readiness check passed."
 
+echo "Checking Worker..."
+
+worker_status=$(docker inspect -f '{{.State.Status}}' bookmark-worker 2>/dev/null || true)
+
+if [ "$worker_status" != "running" ]; then
+    echo "ERROR: Worker is not running."
+    docker logs --tail 50 bookmark-worker || true
+    exit 1
+fi
+
+echo "Worker is running."
+
+echo "Verifying deployed images..."
+
+docker inspect bookmark-api \
+    --format 'API image: {{.Config.Image}}'
+
+docker inspect bookmark-worker \
+    --format 'Worker image: {{.Config.Image}}'
+
+echo "Final container status:"
 docker compose -f compose.prod.yaml ps
+
+echo "Deployment successful."
 
 REMOTE_SCRIPT
                     '''
