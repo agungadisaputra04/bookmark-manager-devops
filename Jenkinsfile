@@ -73,6 +73,7 @@ pipeline {
                         echo "Deploying image: ${IMAGE_NAME}:${IMAGE_TAG}"
 
                         echo "Copying production Compose file..."
+
                         scp -i "$SSH_KEY" \
                           -o StrictHostKeyChecking=yes \
                           compose.prod.yaml \
@@ -93,15 +94,23 @@ echo "Deployment target: $(hostname)"
 echo "Image tag: ${IMAGE_TAG}"
 
 echo "Pulling production images..."
-docker compose -f compose.prod.yaml pull
+
+IMAGE_TAG="$IMAGE_TAG" docker compose \
+    -f compose.prod.yaml \
+    pull
 
 echo "Starting PostgreSQL..."
-docker compose -f compose.prod.yaml up -d postgres
+
+IMAGE_TAG="$IMAGE_TAG" docker compose \
+    -f compose.prod.yaml \
+    up -d postgres
 
 echo "Waiting for PostgreSQL..."
 
 for i in $(seq 1 30); do
-    status=$(docker inspect -f '{{.State.Health.Status}}' bookmark-postgres 2>/dev/null || true)
+    status=$(docker inspect \
+        -f '{{.State.Health.Status}}' \
+        bookmark-postgres 2>/dev/null || true)
 
     if [ "$status" = "healthy" ]; then
         echo "PostgreSQL is healthy."
@@ -112,7 +121,9 @@ for i in $(seq 1 30); do
     sleep 2
 done
 
-status=$(docker inspect -f '{{.State.Health.Status}}' bookmark-postgres)
+status=$(docker inspect \
+    -f '{{.State.Health.Status}}' \
+    bookmark-postgres)
 
 if [ "$status" != "healthy" ]; then
     echo "ERROR: PostgreSQL is not healthy."
@@ -120,15 +131,23 @@ if [ "$status" != "healthy" ]; then
 fi
 
 echo "Running database migration..."
-docker compose -f compose.prod.yaml run --rm api npm run migrate
+
+IMAGE_TAG="$IMAGE_TAG" docker compose \
+    -f compose.prod.yaml \
+    run --rm api npm run migrate
 
 echo "Starting API and Worker..."
-docker compose -f compose.prod.yaml up -d api worker
+
+IMAGE_TAG="$IMAGE_TAG" docker compose \
+    -f compose.prod.yaml \
+    up -d api worker
 
 echo "Waiting for API..."
 
 for i in $(seq 1 30); do
-    status=$(docker inspect -f '{{.State.Health.Status}}' bookmark-api 2>/dev/null || true)
+    status=$(docker inspect \
+        -f '{{.State.Health.Status}}' \
+        bookmark-api 2>/dev/null || true)
 
     if [ "$status" = "healthy" ]; then
         echo "API is healthy."
@@ -139,7 +158,9 @@ for i in $(seq 1 30); do
     sleep 2
 done
 
-status=$(docker inspect -f '{{.State.Health.Status}}' bookmark-api)
+status=$(docker inspect \
+    -f '{{.State.Health.Status}}' \
+    bookmark-api)
 
 if [ "$status" != "healthy" ]; then
     echo "ERROR: API is not healthy."
@@ -171,7 +192,9 @@ echo "API readiness check passed."
 
 echo "Checking Worker..."
 
-worker_status=$(docker inspect -f '{{.State.Status}}' bookmark-worker 2>/dev/null || true)
+worker_status=$(docker inspect \
+    -f '{{.State.Status}}' \
+    bookmark-worker 2>/dev/null || true)
 
 if [ "$worker_status" != "running" ]; then
     echo "ERROR: Worker is not running."
@@ -190,7 +213,10 @@ docker inspect bookmark-worker \
     --format 'Worker image: {{.Config.Image}}'
 
 echo "Final container status:"
-docker compose -f compose.prod.yaml ps
+
+IMAGE_TAG="$IMAGE_TAG" docker compose \
+    -f compose.prod.yaml \
+    ps
 
 echo "Deployment successful."
 
