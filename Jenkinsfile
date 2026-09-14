@@ -72,12 +72,26 @@ pipeline {
 
                         echo "Deploying image: ${IMAGE_NAME}:${IMAGE_TAG}"
 
+                        echo "Preparing Nginx directory..."
+
+                        ssh -i "$SSH_KEY" \
+                          -o StrictHostKeyChecking=yes \
+                          "$SSH_USER@192.168.50.10" \
+                          "mkdir -p /opt/bookmark-manager/docker/nginx"
+
                         echo "Copying production Compose file..."
 
                         scp -i "$SSH_KEY" \
                           -o StrictHostKeyChecking=yes \
                           compose.prod.yaml \
                           "$SSH_USER@192.168.50.10:/opt/bookmark-manager/compose.prod.yaml"
+
+                        echo "Copying Nginx configuration..."
+
+                        scp -i "$SSH_KEY" \
+                          -o StrictHostKeyChecking=yes \
+                          docker/nginx/default.conf \
+                          "$SSH_USER@192.168.50.10:/opt/bookmark-manager/docker/nginx/default.conf"
 
                         echo "Connecting to deployment target..."
 

@@ -33,8 +33,6 @@ services:
       PGSSL: "false"
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: 1h
-    ports:
-      - "3000:3000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -89,6 +87,17 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+  nginx:
+    image: nginx:alpine
+    container_name: bookmark-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   bookmark-postgres-data:
