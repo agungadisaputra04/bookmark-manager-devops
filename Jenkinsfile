@@ -7,6 +7,7 @@ pipeline {
     }
 
     stages {
+
         stage('Checkout') {
             steps {
                 checkout scm
@@ -72,77 +73,92 @@ pipeline {
                         echo "Deploying image: ${IMAGE_NAME}:${IMAGE_TAG}"
 
                         scp -i "$SSH_KEY" \
-                        -o StrictHostKeyChecking=yes \
-                        compose.prod.yaml \
-                        "$SSH_USER@192.168.50.10:/opt/bookmark-manager/compose.prod.yaml"
+                          -o StrictHostKeyChecking=yes \
+                          compose.prod.yaml \
+                          "$SSH_USER@192.168.50.10:/opt/bookmark-manager/compose.prod.yaml"
 
                         ssh -i "$SSH_KEY" \
-                        -o StrictHostKeyChecking=yes \
-                        "$SSH_USER@192.168.50.10" "
-                            set -eu
+                          -o StrictHostKeyChecking=yes \
+                          "$SSH_USER@192.168.50.10" \
+                          "IMAGE_TAG=${IMAGE_TAG} bash -s" <<'REMOTE_SCRIPT'
 
-                            cd /opt/bookmark-manager
-                            export IMAGE_TAG=${IMAGE_TAG}
+set -eu
 
-                            echo 'Pulling production images...'
-                            docker compose -f compose.prod.yaml pull
+cd /opt/bookmark-manager
 
-                            echo 'Starting PostgreSQL...'
-                            docker compose -f compose.prod.yaml up -d postgres
+echo "Pulling production images..."
+docker compose -f compose.prod.yaml pull
 
-                            echo 'Waiting for PostgreSQL...'
-                            for i in \$(seq 1 30); do
-                                status=\$(docker inspect -f '{{.State.Health.Status}}' bookmark-postgres 2>/dev/null || true)
+echo "Starting PostgreSQL..."
+docker compose -f compose.prod.yaml up -d postgres
 
-                                if [ \"\$status\" = 'healthy' ]; then
-                                    break
-                                fi
+echo "Waiting for PostgreSQL..."
 
-                                sleep 2
-                            done
+for i in \$(seq 1 30); do
+    status=\$(docker inspect -f '{{.State.Health.Status}}' bookmark-postgres 2>/dev/null || true)
 
-                            status=\$(docker inspect -f '{{.State.Health.Status}}' bookmark-postgres)
-                            [ \"\$status\" = 'healthy' ]
+    if [ "\$status" = "healthy" ]; then
+        break
+    fi
 
-                            echo 'Running database migration...'
-                            docker compose -f compose.prod.yaml run --rm api npm run migrate
+    sleep 2
+done
 
-                            echo 'Starting API and Worker...'
-                            docker compose -f compose.prod.yaml up -d api worker
+status=\$(docker inspect -f '{{.State.Health.Status}}' bookmark-postgres)
 
-                            echo 'Waiting for API...'
-                            for i in \$(seq 1 30); do
-                                status=\$(docker inspect -f '{{.State.Health.Status}}' bookmark-api 2>/dev/null || true)
+if [ "\$status" != "healthy" ]; then
+    echo "PostgreSQL is not healthy"
+    exit 1
+fi
 
-                                if [ \"\$status\" = 'healthy' ]; then
-                                    break
-                                fi
+echo "Running database migration..."
+docker compose -f compose.prod.yaml run --rm api npm run migrate
 
-                                sleep 2
-                            done
+echo "Starting API and Worker..."
+docker compose -f compose.prod.yaml up -d api worker
 
-                            status=\$(docker inspect -f '{{.State.Health.Status}}' bookmark-api)
-                            [ \"\$status\" = 'healthy' ]
+echo "Waiting for API..."
 
-                            echo 'Checking API liveness...'
-                            docker exec bookmark-api node -e \"
-                                require('http').get(
-                                    'http://localhost:3000/health/live',
-                                    r => process.exit(r.statusCode === 200 ? 0 : 1)
-                                ).on('error', () => process.exit(1))
-                            \"
+for i in \$(seq 1 30); do
+    status=\$(docker inspect -f '{{.State.Health.Status}}' bookmark-api 2>/dev/null || true)
 
-                            echo 'Checking API readiness...'
-                            docker exec bookmark-api node -e \"
-                                require('http').get(
-                                    'http://localhost:3000/health/ready',
-                                    r => process.exit(r.statusCode === 200 ? 0 : 1)
-                                ).on('error', () => process.exit(1))
-                            \"
+    if [ "\$status" = "healthy" ]; then
+        break
+    fi
 
-                            echo 'Deployment successful.'
-                            docker compose -f compose.prod.yaml ps
-                        "
+    sleep 2
+done
+
+status=\$(docker inspect -f '{{.State.Health.Status}}' bookmark-api)
+
+if [ "\$status" != "healthy" ]; then
+    echo "API is not healthy"
+    exit 1
+fi
+
+echo "Checking API liveness..."
+
+docker exec bookmark-api node -e "
+    require('http').get(
+        'http://localhost:3000/health/live',
+        r => process.exit(r.statusCode === 200 ? 0 : 1)
+    ).on('error', () => process.exit(1))
+"
+
+echo "Checking API readiness..."
+
+docker exec bookmark-api node -e "
+    require('http').get(
+        'http://localhost:3000/health/ready',
+        r => process.exit(r.statusCode === 200 ? 0 : 1)
+    ).on('error', () => process.exit(1))
+"
+
+echo "Deployment successful."
+
+docker compose -f compose.prod.yaml ps
+
+REMOTE_SCRIPT
                     '''
                 }
             }
