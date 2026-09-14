@@ -1,174 +1,343 @@
-# bookmark-manager-api
+# Developer Handoff — Bookmark Manager API
 
-REST API dan background worker sederhana untuk menyimpan, mengorganisasi (dengan tag),
-dan memeriksa status hidup/matinya (link check) bookmark milik pengguna.
+This document is the technical reference for engineers working on or taking over this codebase: architecture, repository layout, configuration, dependencies, database requirements, and API surface.
 
-## 1. Application Overview
+For the project overview and DevOps implementation, see the [root README](../README.md).
 
-Aplikasi terdiri dari dua proses terpisah yang berjalan dari satu codebase:
+## Application Overview
 
-- **API server** (`src/server.js`) — REST API untuk registrasi/login user dan CRUD bookmark.
-- **Worker** (`src/worker.js`) — proses terpisah yang berjalan berkala (cron) untuk
-  memeriksa apakah URL bookmark masih dapat diakses, lalu memperbarui statusnya
-  (`ok` / `broken`) di database.
+The application consists of two separate processes running from a single codebase:
 
-Kedua proses membaca konfigurasi yang sama dan terhubung ke database yang sama.
+- **API server** (`src/server.js`) — REST API for user registration/login and bookmark CRUD.
+- **Worker** (`src/worker.js`) — a separate cron-scheduled process that periodically checks whether bookmarked URLs are still reachable and updates their status (`ok` / `broken`) in the database.
 
-## 2. Technology Stack
+Both processes read the same configuration and connect to the same PostgreSQL database.
 
-| Layer            | Teknologi                          |
-|-------------------|-------------------------------------|
-| Runtime            | Node.js 18+                        |
-| Web framework       | Express 4                          |
-| Database           | PostgreSQL (driver: `pg`)          |
-| Auth               | JWT (`jsonwebtoken`) + bcrypt      |
-| Scheduler (worker)  | `node-cron`                        |
-| Testing            | Jest + Supertest                   |
+## Technology Stack
 
-## 3. Repository Structure
+| Layer | Technology |
+|-------|------------|
+| Runtime | Node.js 18+ |
+| Web framework | Express 4 |
+| Database | PostgreSQL (driver: `pg`) |
+| Auth | JWT (`jsonwebtoken`) + bcrypt |
+| Scheduler (worker) | `node-cron` |
+| Testing | Jest + Supertest |
 
-```
-bookmark-manager/
+## Repository Structure
+
+```text
+bookmark-manager-api/
+
 ├── migrations/
-│   └── 001_init.sql          # skema database
+│   └── 001_init.sql          # database schema
+│
 ├── scripts/
-│   └── migrate.js            # migration runner sederhana
+│   └── migrate.js            # migration runner
+│
 ├── src/
-│   ├── config.js              # baca & validasi environment variables
-│   ├── db.js                  # koneksi pool PostgreSQL
-│   ├── app.js                 # wiring Express app (untuk testing)
-│   ├── server.js               # entrypoint proses API
-│   ├── worker.js               # entrypoint proses worker (link checker)
+│   ├── config.js             # reads and validates environment variables
+│   ├── db.js                 # PostgreSQL connection pool
+│   ├── app.js                # Express app wiring for testing
+│   ├── server.js             # API process entrypoint
+│   ├── worker.js             # worker process entrypoint
+│   │
 │   ├── middleware/
-│   │   ├── auth.js             # verifikasi JWT
-│   │   └── errorHandler.js     # error handler terpusat
+│   │   ├── auth.js            # JWT verification
+│   │   └── errorHandler.js    # centralized error handler
+│   │
 │   ├── routes/
-│   │   ├── auth.js             # POST /auth/register, /auth/login
-│   │   ├── bookmarks.js        # CRUD /bookmarks
-│   │   └── health.js           # GET /health/live, /health/ready
+│   │   ├── auth.js            # POST /auth/register, /auth/login
+│   │   ├── bookmarks.js       # bookmark CRUD
+│   │   └── health.js          # health endpoints
+│   │
 │   ├── services/
-│   │   ├── bookmarkService.js  # query database untuk bookmark
-│   │   └── linkChecker.js      # logika pengecekan URL
+│   │   ├── bookmarkService.js # bookmark database queries
+│   │   └── linkChecker.js     # URL check logic
+│   │
 │   └── utils/
-│       └── validators.js       # validasi email/url
+│       └── validators.js       # email/URL validation
+│
 ├── tests/
 │   ├── validators.test.js
 │   └── app.test.js
+│
 ├── .env.example
 ├── jest.config.js
-└── package.json
+├── package.json
+└── package-lock.json
 ```
 
-## 4. Local Development
+## Local Development
 
-Prasyarat: Node.js 18+, npm, dan instance PostgreSQL yang dapat diakses.
+Prerequisites:
+
+- Node.js 18+
+- npm
+- An accessible PostgreSQL instance
+
+Install dependencies:
 
 ```bash
 npm install
-cp .env.example .env
-# sesuaikan .env dengan koneksi database lokal Anda
-npm run migrate
-npm run dev        # menjalankan API server dengan nodemon (auto-reload)
 ```
 
-Untuk menjalankan worker secara terpisah (di terminal lain):
+Create the local environment file:
+
+```bash
+cp .env.example .env
+```
+
+Adjust `.env` to match the local database connection and provide a JWT secret.
+
+Run the database migration:
+
+```bash
+npm run migrate
+```
+
+Start the API:
+
+```bash
+npm run dev
+```
+
+The development server uses `nodemon` for automatic reloads.
+
+Run the worker separately:
 
 ```bash
 npm run worker
 ```
 
-## 5. Dependency
+## Dependencies
 
-Lihat `package.json`. Dependency utama: `express`, `pg`, `jsonwebtoken`, `bcryptjs`,
-`node-cron`, `dotenv`. Dependency dev: `jest`, `supertest`, `nodemon`.
+See `package.json` for the complete dependency list.
 
-## 6. Configuration
+Main runtime dependencies:
 
-Semua konfigurasi dibaca dari environment variable melalui `src/config.js`
-(menggunakan `dotenv` saat development). Tidak ada nilai konfigurasi yang
-di-hardcode di source code.
+- `express`
+- `pg`
+- `jsonwebtoken`
+- `bcryptjs`
+- `node-cron`
+- `dotenv`
 
-## 7. Environment Variables
+Development dependencies:
 
-| Variable                | Wajib | Default            | Keterangan                                   |
-|--------------------------|-------|---------------------|-----------------------------------------------|
-| `PORT`                   | tidak | `3000`              | Port HTTP API server                          |
-| `NODE_ENV`                | tidak | `development`        | Mode aplikasi                                 |
-| `DATABASE_URL`            | ya    | —                    | Connection string PostgreSQL                  |
-| `PGSSL`                   | tidak | `false`              | Set `true` jika DB memerlukan SSL             |
-| `JWT_SECRET`               | ya    | —                    | Secret untuk menandatangani JWT               |
-| `JWT_EXPIRES_IN`           | tidak | `1h`                 | Masa berlaku token                            |
-| `LINK_CHECK_CRON`          | tidak | `*/15 * * * *`        | Jadwal cron untuk worker link-checker         |
-| `LINK_CHECK_TIMEOUT_MS`     | tidak | `5000`               | Timeout per request pengecekan URL            |
-| `LINK_CHECK_CONCURRENCY`    | tidak | `5`                  | Jumlah pengecekan URL paralel dalam satu batch |
+- `jest`
+- `supertest`
+- `nodemon`
 
-Nilai untuk `DATABASE_URL` dan `JWT_SECRET` **wajib** disediakan; aplikasi akan
-gagal start (`throw`) jika tidak ada.
+## Configuration
 
-## 8. Port yang Digunakan
+Application configuration is provided through environment variables and loaded through `src/config.js`.
 
-- API server: `PORT` (default `3000`), HTTP saja — aplikasi tidak menangani TLS.
-- Worker: tidak membuka port (bukan HTTP server), hanya proses cron internal.
+In development, `.env` is loaded through `dotenv`.
 
-## 9. Database Requirement
+Configuration values should not be hardcoded into the application source.
 
-Aplikasi **membutuhkan instance PostgreSQL** yang dapat diakses oleh kedua proses
-(API dan worker). Skema database ada di `migrations/001_init.sql` (tabel `users`
-dan `bookmarks`). Jalankan `npm run migrate` untuk menerapkannya ke database yang
-dikonfigurasi di `DATABASE_URL`.
+## Environment Variables
 
-Ketersediaan, provisioning, backup, dan high-availability database berada di luar
-tanggung jawab aplikasi ini.
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `PORT` | No | `3000` | API server HTTP port |
+| `NODE_ENV` | No | `development` | Application mode |
+| `DATABASE_URL` | Yes | — | PostgreSQL connection string |
+| `PGSSL` | No | `false` | Enables PostgreSQL SSL when set to `true` |
+| `JWT_SECRET` | Yes | — | Secret used to sign JWTs |
+| `JWT_EXPIRES_IN` | No | `1h` | JWT token lifetime |
+| `LINK_CHECK_CRON` | No | `*/15 * * * *` | Worker cron schedule |
+| `LINK_CHECK_TIMEOUT_MS` | No | `5000` | Timeout for each URL check |
+| `LINK_CHECK_CONCURRENCY` | No | `5` | Maximum parallel URL checks per batch |
 
-## 10. External Service / API
+`DATABASE_URL` and `JWT_SECRET` are required. The application fails to start when either required value is missing.
 
-Worker (`linkChecker.js`) melakukan outbound HTTP request (HEAD, fallback GET) ke
-URL yang tersimpan sebagai bookmark milik user — jadi worker membutuhkan akses
-jaringan keluar (outbound) ke internet publik. Tidak ada API pihak ketiga lain
-yang digunakan.
+## Ports
 
-## 11. API Endpoint
+- **API server:** `PORT` (default `3000`)
+- **Worker:** no listening port; it runs as an internal scheduled process
 
-| Method | Path              | Auth | Deskripsi                          |
-|--------|-------------------|------|--------------------------------------|
-| POST   | `/auth/register`   | tidak | Registrasi user baru                |
-| POST   | `/auth/login`       | tidak | Login, mengembalikan JWT            |
-| GET    | `/bookmarks`        | ya    | List bookmark milik user (filter opsional: `?tag=`, `?status=`) |
-| POST   | `/bookmarks`        | ya    | Membuat bookmark baru                |
-| GET    | `/bookmarks/:id`     | ya    | Detail satu bookmark                 |
-| PATCH  | `/bookmarks/:id`     | ya    | Update title/tags bookmark           |
-| DELETE | `/bookmarks/:id`     | ya    | Hapus bookmark                        |
+The application itself does not terminate TLS. HTTPS and TLS termination are infrastructure responsibilities.
 
-Autentikasi menggunakan header `Authorization: Bearer <token>`.
+## Database Requirement
 
-## 12. Health Check
+The application requires a reachable PostgreSQL instance accessible from both the API and worker processes.
 
-- `GET /health/live` — liveness, selalu `200 { "status": "ok" }` jika proses hidup.
-- `GET /health/ready` — readiness, `200` jika database dapat diakses, `503` jika tidak.
+The database schema is defined in:
 
-Worker tidak memiliki HTTP health endpoint (bukan HTTP server); statusnya hanya
-terlihat dari log proses.
+```text
+migrations/001_init.sql
+```
 
-## 13. Test
+The initial schema contains:
+
+- `users`
+- `bookmarks`
+
+Apply the schema with:
+
+```bash
+npm run migrate
+```
+
+The migration runner reads SQL files from the `migrations/` directory in filename order.
+
+Database provisioning, backups, high availability, and database operations are outside the scope of the application code.
+
+## External Services
+
+The worker makes outbound HTTP requests to URLs stored as user bookmarks.
+
+The worker first attempts a `HEAD` request and falls back to `GET` when required by the link-checking logic.
+
+Therefore, the worker requires outbound internet access.
+
+No third-party API is required by the application.
+
+## API Reference
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/auth/register` | No | Register a new user |
+| POST | `/auth/login` | No | Log in and receive a JWT |
+| GET | `/bookmarks` | Yes | List the user's bookmarks |
+| POST | `/bookmarks` | Yes | Create a new bookmark |
+| GET | `/bookmarks/:id` | Yes | Get a bookmark's details |
+| PATCH | `/bookmarks/:id` | Yes | Update a bookmark's title/tags |
+| DELETE | `/bookmarks/:id` | Yes | Delete a bookmark |
+| GET | `/health/live` | No | Liveness check |
+| GET | `/health/ready` | No | Readiness check including database connectivity |
+
+The `/bookmarks` endpoint supports optional filters:
+
+```text
+?tag=<tag>
+?status=<status>
+```
+
+Authenticated endpoints use:
+
+```text
+Authorization: Bearer <token>
+```
+
+## Health Checks
+
+### Liveness
+
+```text
+GET /health/live
+```
+
+The endpoint indicates whether the API process is running.
+
+Expected response:
+
+```json
+{
+  "status": "ok"
+}
+```
+
+### Readiness
+
+```text
+GET /health/ready
+```
+
+The endpoint verifies that the API can reach its PostgreSQL dependency.
+
+Expected healthy response:
+
+```json
+{
+  "status": "ok",
+  "database": "connected"
+}
+```
+
+When the database is unavailable, the endpoint reports an unhealthy state.
+
+The worker does not expose an HTTP health endpoint because it is not an HTTP server. Its runtime state is observable through process/container status and logs.
+
+## Testing
+
+Run the automated test suite with:
 
 ```bash
 npm test
 ```
 
-Test menggunakan Jest + Supertest. Modul `src/db.js` di-mock pada test integrasi
-(`tests/app.test.js`) sehingga test dapat berjalan tanpa koneksi database yang
-sesungguhnya. `tests/validators.test.js` berisi unit test murni.
+Tests use Jest and Supertest.
 
-## 14. Cara Menjalankan Aplikasi
+The application database module is mocked where required so that the test suite can run without requiring a real PostgreSQL instance.
+
+`tests/validators.test.js` contains validator unit tests.
+
+`tests/app.test.js` validates API behavior through the Express application.
+
+## Running the Application
+
+Install dependencies:
 
 ```bash
 npm install
-cp .env.example .env         # lalu isi DATABASE_URL dan JWT_SECRET
-npm run migrate
-npm start                    # proses API
-npm run worker               # proses worker, di terminal terpisah
 ```
 
-Dokumen ini sengaja tidak membahas containerization, orchestration, reverse
-proxy, TLS, monitoring, atau deployment production — itu berada di luar
-lingkup developer handoff ini.
+Configure the environment:
+
+```bash
+cp .env.example .env
+```
+
+Run migrations:
+
+```bash
+npm run migrate
+```
+
+Start the API:
+
+```bash
+npm start
+```
+
+Start the worker in a separate terminal:
+
+```bash
+npm run worker
+```
+
+## Handoff Notes
+
+The application is designed to run as two independent processes:
+
+```text
+                 ┌─────────────────┐
+                 │   API Process   │
+                 │  src/server.js  │
+                 └────────┬────────┘
+                          │
+                          ▼
+                 ┌─────────────────┐
+                 │   PostgreSQL    │
+                 └────────▲────────┘
+                          │
+                 ┌────────┴────────┐
+                 │ Worker Process  │
+                 │  src/worker.js  │
+                 └─────────────────┘
+```
+
+The API and worker can therefore be deployed as separate runtime processes while sharing the same database and configuration.
+
+Important operational dependencies are:
+
+- PostgreSQL must be reachable.
+- The API requires `DATABASE_URL` and `JWT_SECRET`.
+- The worker requires outbound internet access for bookmark URL checks.
+- Database migrations must be applied before the application relies on the schema.
+- The API exposes liveness and readiness endpoints for infrastructure-level health validation.
+
+This document describes the application as handed over by the developer. Containerization, orchestration, CI/CD, deployment, networking, TLS, monitoring, and other infrastructure concerns are documented separately in the DevOps project documentation.

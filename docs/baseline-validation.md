@@ -1,25 +1,20 @@
 # Baseline Validation
 
-Before containerizing the application, I first validated the developer handoff
-in a working environment.
-
-The goal was simple: make sure the application, database, API, and worker are
-all working before changing the deployment model.
+Before containerizing the application, I first validated the [developer handoff](./developer-handoff.md) in a working environment. The goal was simple: confirm the application, database, API, and worker all work correctly before changing the deployment model — so that any issue found later during containerization can be attributed to Docker, not to the application itself.
 
 ## Environment
 
-| Component | Value |
-|---|---|
-| Node.js | 24.x |
-| PostgreSQL | 16 |
-| Database | `bookmark_manager` |
-| API | `localhost:3000` |
-| PostgreSQL | `localhost:5432` |
+| Component        | Value                |
+|---------------------|-------------------------|
+| Node.js             | 24.x                    |
+| PostgreSQL          | 16                       |
+| Database            | `bookmark_manager`       |
+| API address          | `localhost:3000`         |
+| PostgreSQL address    | `localhost:5432`         |
 
-At this stage, the API and worker still run directly on the host. PostgreSQL is
-the first component running in Docker.
+At this stage, the API and worker still run directly on the local development host. PostgreSQL is the first component running in Docker through Docker Desktop.
 
-## Test Result
+## 1. Automated Tests
 
 The existing test suite passed:
 
@@ -31,10 +26,9 @@ Failures:    0
 
 ![Application tests](evidence/tests-passed.png)
 
-The tests use a mocked database, so I also tested the application against a
-real PostgreSQL instance.
+The test suite uses a mocked database, so this alone doesn't prove the application works against a real one — the following steps validate that against an actual PostgreSQL instance.
 
-## PostgreSQL
+## 2. PostgreSQL
 
 PostgreSQL was started as a Docker container:
 
@@ -49,15 +43,13 @@ The container reached the ready state and accepted connections.
 
 ![PostgreSQL container](evidence/postgres-running.png)
 
-## Database Migration
+## 3. Database Migration
 
-The application migration was then run against the PostgreSQL container:
+The migration was run against the PostgreSQL container:
 
-```text
+```bash
 npm run migrate
 ```
-
-Result:
 
 ```text
 Applying migration: 001_init.sql
@@ -66,92 +58,67 @@ All migrations applied successfully.
 
 ![Database migration](evidence/migration-success.png)
 
-## API
+## 4. API
 
 The API was started with:
 
-```text
+```bash
 npm start
 ```
 
-### Liveness
-
-```text
-GET /health/live
-```
-
-Response:
+**Liveness — `GET /health/live`**
 
 ```json
-{
-  "status": "ok"
-}
+{ "status": "ok" }
 ```
 
 ![API liveness](evidence/api-liveness.png)
 
-### Readiness
-
-```text
-GET /health/ready
-```
-
-Response:
+**Readiness — `GET /health/ready`**
 
 ```json
-{
-  "status": "ok",
-  "database": "connected"
-}
+{ "status": "ok", "database": "connected" }
 ```
 
-This was the important check for the baseline because it shows that the API
-can reach the PostgreSQL database.
+This was the key check for the baseline: it confirms the API can actually reach the PostgreSQL database, not just that the process is running.
 
 ![API readiness](evidence/api-readiness.png)
 
-## Worker
+## 5. Worker
 
 The background worker was started with:
 
-```text
+```bash
 npm run worker
 ```
-
-Startup output:
 
 ```text
 link-checker worker started. Schedule: "*/15 * * * *"
 Link-check batch complete: 0 bookmark(s) checked.
 ```
 
-The worker started normally. There were no bookmarks in the database yet, so
-there was nothing to process.
+The worker started normally. There were no bookmarks in the database yet, so there was nothing to process — this is expected at this stage.
 
 ![Worker startup](evidence/worker-started.png)
 
 ## Baseline Architecture
 
-At this stage, the API and worker still run directly on the development host,
-while PostgreSQL runs as a Docker container.
+At this stage, the API and worker still run directly on the development host, while PostgreSQL runs as a Docker container.
 
 ![Baseline Architecture](architecture/baseline-architecture.svg)
 
 ## Result
 
-The application is working against a real PostgreSQL instance:
+The application works correctly against a real PostgreSQL instance:
 
-- automated tests pass;
-- database migration succeeds;
-- API liveness works;
-- API readiness reports `database: connected`;
-- worker starts successfully.
+- Automated tests pass
+- Database migration succeeds
+- API liveness responds correctly
+- API readiness confirms `database: connected`
+- Worker starts and runs its schedule successfully
 
-With the baseline working, the application is ready for the next step:
-
-**containerizing the API and worker.**
+With this baseline confirmed, the application is ready for the next step.
 
 ## Next Step
 
-Containerize the API and worker as separate containers while keeping
-PostgreSQL as a separate service.
+Containerize the API and worker as separate containers while keeping PostgreSQL as a separate service — see [`docker-validation.md`](./docker-validation.md) for the full result.
