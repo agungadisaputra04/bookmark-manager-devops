@@ -209,6 +209,26 @@ This confirms:
 3. The API can reach PostgreSQL.
 4. PostgreSQL is available through the internal Docker network.
 
+## Evidence
+
+### 1. Container Status
+
+All required services are running and the API/PostgreSQL containers are healthy.
+
+![Docker Compose container status](evidence/networking-docker-ps.png)
+
+### 2. Health Check Through Nginx
+
+Requests to `/health/live` and `/health/ready` return HTTP 200 through Nginx.
+
+![Nginx health check](evidence/networking-healthcheck.png)
+
+### 3. Port Exposure
+
+Only Nginx exposes a host port. The API port `3000` remains internal to the Docker network.
+
+![Port exposure validation](evidence/networking-port-exposure.png)
+
 ## Result
 
 The reverse proxy architecture is successfully implemented and validated.
