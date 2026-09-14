@@ -72,7 +72,7 @@ The project is developed incrementally through the following stages.
 | 1 | Developer handoff & baseline validation | **Completed** — [`docs/baseline-validation.md`](./docs/baseline-validation.md) |
 | 2 | Containerization & local orchestration | **Completed** — [`docs/docker-validation.md`](./docs/docker-validation.md) |
 | 3 | CI/CD & application deployment | **Completed** — [`docs/cicd-validation.md`](./docs/cicd-validation.md) |
-| 4 | Networking & reverse proxy | Planned |
+| 4 | Networking & reverse proxy | **Completed** — [`networking-reverse-proxy.md`](./docs/networking-reverse-proxy.md) |
 | 5 | TLS / HTTPS | Planned |
 | 6 | Security hardening | Planned |
 | 7 | Logging & monitoring | Planned |
