@@ -2,166 +2,91 @@
 
 ## Objective
 
-Automate the delivery of the Bookmark Manager application from source
-control to the application VM using Jenkins.
+Automate the delivery of the Bookmark Manager application from source control to the application VM using Jenkins.
 
-The pipeline validates the complete delivery path:
+The pipeline validates the complete delivery path — source checkout, dependency installation, application testing, Docker image build, image publication to GHCR, remote deployment to VM101, database migration, and post-deployment health validation.
 
-``` text
+## CI/CD Architecture
+
+![CI/CD Architecture](./architecture/cicd-architecture.png)
+
+## Stack
+
+| Component | Purpose |
+|-----------|---------|
+| GitHub | Source code repository |
+| Jenkins VM102 | CI/CD server and pipeline execution |
+| Jenkins | Automates test, build, image publication, and deployment |
+| GHCR | Private Docker image registry |
+| VM101 | Application deployment target |
+| Docker Compose | Production application orchestration |
+| PostgreSQL | Application database |
+
+## Deployment Architecture
+
+```text
 GitHub
-   ↓
-Jenkins
-   ↓
-npm ci
-   ↓
-npm test
-   ↓
-Docker build
-   ↓
-GHCR
-   ↓
-VM101
-   ↓
-Docker Compose
-   ↓
-API + Worker + PostgreSQL
+   │
+   ▼
+Jenkins VM102
+   │
+   ├── npm ci
+   ├── npm test
+   └── Docker build
+          │
+          ▼
+        GHCR
+          │
+          ▼
+     VM101 / Docker Compose
+          │
+          ├── API
+          ├── Worker
+          └── PostgreSQL
 ```
 
-The goal is to demonstrate a working CI/CD workflow with separate CI
-infrastructure and application runtime, immutable image tags, remote
-deployment, database migration, health validation, and deployment
-verification.
+The CI/CD server and application runtime are intentionally separated:
 
-## Environment
+- VM102 (`lab-devops-01`) → Jenkins and CI/CD
+- VM101 (`lab-app-01`) → application runtime
 
-  Component                 Role
-  ------------------------- -------------------------------------------------
-  GitHub                    Source code repository
-  VM102 / `lab-devops-01`   Jenkins CI/CD server
-  Jenkins                   Pipeline execution and deployment orchestration
-  GHCR                      Private Docker image registry
-  VM101 / `lab-app-01`      Application deployment target
-  Docker Compose            Production application orchestration
-  PostgreSQL                Application database
-
-The deployment architecture is:
-
-``` text
-                    ┌─────────────────┐
-                    │     GitHub      │
-                    │      main       │
-                    └────────┬────────┘
-                             │ SSH
-                             ▼
-                    ┌─────────────────┐
-                    │ Jenkins VM102   │
-                    │ lab-devops-01   │
-                    └───────┬─────────┘
-                            │
-             ┌──────────────┼──────────────┐
-             │              │              │
-             ▼              ▼              ▼
-          npm ci          npm test     Docker build
-                                            │
-                                            ▼
-                                      ┌─────────────┐
-                                      │     GHCR    │
-                                      │ image:<tag> │
-                                      └──────┬──────┘
-                                             │
-                                             │ SSH + pull
-                                             ▼
-                                    ┌─────────────────┐
-                                    │ Application VM101│
-                                    │  lab-app-01     │
-                                    └────────┬────────┘
-                                             │
-                                      Docker Compose
-                                             │
-                           ┌─────────────────┼─────────────────┐
-                           ▼                 ▼                 ▼
-                         API              Worker          PostgreSQL
-```
+This provides separation of concerns between CI infrastructure and the deployed application.
 
 ## Jenkins Configuration
 
-Jenkins is installed natively on VM102 rather than inside Docker.
-
-This keeps the CI server independent from the application containers it
-builds and deploys.
-
-Jenkins runs as the `jenkins` system user and has controlled access to:
-
--   GitHub through an SSH key
--   Docker on VM102
--   GHCR through a dedicated credential
--   VM101 through a dedicated deployment SSH key
-
-## GitHub Access
-
-The Jenkins GitHub SSH key is stored under the Jenkins account:
-
-``` text
-/var/lib/jenkins/.ssh/id_ed25519
-```
-
-The corresponding public key is registered in GitHub as:
-
-``` text
-Jenkins - lab-devops-01
-```
-
-Authentication was validated with:
-
-``` bash
-sudo -u jenkins ssh -T git@github.com
-```
-
-The connection authenticated successfully against the GitHub account
-used by the repository.
-
-Jenkins therefore retrieves source code through SSH rather than
-embedding a GitHub password or token in the pipeline.
-
-## Jenkins Job
+Jenkins is installed natively on VM102 rather than running inside Docker.
 
 The Jenkins job is:
 
-``` text
+```text
 bookmark-manager-ci
 ```
 
-The job uses:
+The job uses Pipeline script from SCM with the following configuration:
 
-``` text
-Definition: Pipeline script from SCM
-SCM: Git
-Repository: git@github.com:agungadisaputra04/bookmark-manager-devops.git
-Credentials: github-ssh
-Branch: */main
-Script Path: Jenkinsfile
-```
+| Configuration | Value |
+|---------------|-------|
+| SCM | Git |
+| Repository | `git@github.com:agungadisaputra04/bookmark-manager-devops.git` |
+| Credential | `github-ssh` |
+| Branch | `*/main` |
+| Script Path | `Jenkinsfile` |
 
-This keeps the pipeline definition inside the repository and makes the
-CI/CD configuration version-controlled.
+Keeping the Jenkinsfile inside the repository makes the pipeline configuration version-controlled together with the application.
 
 ## Jenkins Credentials
 
-Three separate credential purposes are used.
+Separate credentials are used for each external access requirement:
 
-  Credential           Purpose
-  -------------------- ------------------------------------
-  `github-ssh`         Jenkins → GitHub repository access
-  `ghcr-credentials`   Jenkins → GHCR image push
-  `vm101-deploy-ssh`   Jenkins → VM101 deployment access
+| Credential | Purpose |
+|------------|---------|
+| `github-ssh` | Jenkins → GitHub repository access |
+| `ghcr-credentials` | Jenkins → GHCR image push |
+| `vm101-deploy-ssh` | Jenkins → VM101 SSH deployment |
 
-The credentials are intentionally separated by function.
+The credentials are not hard-coded in the Jenkinsfile.
 
-The GHCR credential has write capability because Jenkins publishes
-images.
-
-The VM101 host uses a separate read-only GHCR token for pulling images.
-The Jenkins write credential is not copied to the application VM.
+The VM101 host uses a separate GHCR pull-only token with `read:packages` permission. The Jenkins GHCR write credential is not copied to the application VM.
 
 ## Docker Access from Jenkins
 
@@ -169,60 +94,23 @@ Jenkins requires Docker access to build the application image.
 
 The Jenkins user was added to the Docker group:
 
-``` bash
+```bash
 sudo usermod -aG docker jenkins
 ```
 
-After restarting Jenkins, Docker access was validated with:
+Docker access was then validated with:
 
-``` bash
+```bash
 sudo -u jenkins docker info
 ```
 
-This confirms that Jenkins can invoke Docker directly on VM102 without
-using Docker-in-Docker.
+Jenkins therefore builds Docker images directly on VM102 without Docker-in-Docker.
 
-## Node.js Runtime
+## CI/CD Pipeline
 
-Node.js is installed on VM102 because the pipeline executes the
-application's dependency installation and test commands before building
-the image.
+The Jenkins pipeline consists of the following stages:
 
-The runtime used during validation was Node.js 24 with npm 11.
-
-The application itself also uses Node.js 24 in the Docker image.
-
-## GHCR Image Strategy
-
-The Docker image is published to:
-
-``` text
-ghcr.io/agungadisaputra04/bookmark-manager-devops
-```
-
-The pipeline uses the Jenkins build number as the image tag:
-
-``` text
-IMAGE_TAG = BUILD_NUMBER
-```
-
-For example:
-
-``` text
-ghcr.io/agungadisaputra04/bookmark-manager-devops:10
-```
-
-Using build-number tags provides an immutable reference to the image
-produced by a specific Jenkins build.
-
-The deployment target therefore does not need to rely on an ambiguous
-`latest` tag.
-
-## Pipeline Stages
-
-The Jenkins pipeline contains these stages:
-
-``` text
+```text
 Checkout
    ↓
 Install Dependencies
@@ -233,70 +121,70 @@ Build Docker Image
    ↓
 Push to GHCR
    ↓
-Deploy
+Deploy to VM101
 ```
 
 ### 1. Checkout
 
-Jenkins checks out the `main` branch from GitHub using the configured
-SSH credential.
+Jenkins checks out the `main` branch from GitHub using the `github-ssh` credential.
 
-Purpose:
-
--   Retrieve the exact source revision
--   Load the repository's `Jenkinsfile`
--   Provide the source tree for testing and image building
+**Purpose:** retrieve the source revision that will be tested and packaged.
 
 ### 2. Install Dependencies
 
 The pipeline executes:
 
-``` bash
+```bash
 npm ci
 ```
 
-`npm ci` is used instead of `npm install` because the CI environment
-should install the dependency versions represented by the lockfile.
+`npm ci` uses the dependency versions recorded in `package-lock.json`, providing a deterministic CI installation.
+
+**Result: PASS**
 
 ### 3. Test
 
 The pipeline executes:
 
-``` bash
+```bash
 npm test
 ```
 
-The existing application test suite must pass before Docker image
-publication.
+The Docker image is not published when the application test stage fails.
 
-This prevents an image from being published when the application tests
-fail.
+**Result: PASS**
 
 ### 4. Build Docker Image
 
-The pipeline builds the image using:
+The application image is built using:
 
-``` bash
+```bash
 docker build \
   -f docker/Dockerfile \
   -t ${IMAGE_NAME}:${IMAGE_TAG} .
 ```
 
-The image is tagged using the Jenkins build number.
+The image name is:
 
-Example:
+```text
+ghcr.io/agungadisaputra04/bookmark-manager-devops
+```
 
-``` text
+The image tag is based on the Jenkins build number.
+
+For Build #10:
+
+```text
 ghcr.io/agungadisaputra04/bookmark-manager-devops:10
 ```
 
+**Result: PASS**
+
 ### 5. Push to GHCR
 
-Jenkins authenticates to GHCR using the `ghcr-credentials` credential.
+Jenkins authenticates to GHCR using the `ghcr-credentials` credential:
 
-The pipeline executes:
-
-``` bash
+```bash
 echo "$GHCR_TOKEN" | docker login ghcr.io \
   -u "$GHCR_USER" \
   --password-stdin
@@ -306,19 +194,32 @@ docker push ${IMAGE_NAME}:${IMAGE_TAG}
 docker logout ghcr.io
 ```
 
-The token is supplied to the command through Jenkins credentials binding
-rather than being written directly into the Jenkinsfile.
+The token is supplied through Jenkins credential binding instead of being stored in the Jenkinsfile.
 
-### 6. Deploy
+**Result: PASS**
 
-The deployment stage performs the following operations:
+Evidence: `docs/evidence/ghcr-image-10.png`
 
-``` text
+## Production Deployment
+
+The deployment target is:
+
+```text
+Host      : lab-app-01
+IP        : 192.168.50.10
+Directory : /opt/bookmark-manager
+```
+
+Jenkins copies the production Compose file to VM101 and then connects through SSH to execute the deployment sequence.
+
+## Deployment Sequence
+
+The deployment performs the following steps:
+
+```text
 Copy compose.prod.yaml
         ↓
-SSH to VM101
-        ↓
-Pull image
+Pull production image
         ↓
 Start PostgreSQL
         ↓
@@ -330,9 +231,9 @@ Start API + Worker
         ↓
 Wait for API healthy
         ↓
-Check liveness
+Check API liveness
         ↓
-Check readiness
+Check API readiness
         ↓
 Check Worker
         ↓
@@ -341,145 +242,71 @@ Verify deployed image
 Show final Compose status
 ```
 
-## VM101 Deployment Target
+### Image Pull
 
-The application is deployed to:
-
-``` text
-Host: lab-app-01
-IP: 192.168.50.10
-Directory: /opt/bookmark-manager
-```
-
-The deployment directory contains the production Compose configuration
-and runtime environment.
-
-The production `.env` file is kept on the VM and is not committed to
-Git.
-
-Its permissions are restricted:
-
-``` text
-chmod 600
-```
-
-## Production Compose Configuration
-
-The deployment uses:
-
-``` text
-compose.prod.yaml
-```
-
-The production Compose file runs:
-
-``` text
-bookmark-api
-bookmark-worker
-bookmark-postgres
-```
-
-Unlike the local Compose configuration, PostgreSQL does not publish port
-`5432` to the host.
-
-The database is therefore reachable by the application services through
-the internal Docker network.
-
-The API publishes:
-
-``` text
-3000:3000
-```
-
-for external access from the application VM.
-
-## Image Pull
-
-The VM101 deployment uses the exact image tag produced by Jenkins.
+VM101 pulls the exact image tag generated by Jenkins.
 
 For Build #10:
 
-``` text
+```text
 ghcr.io/agungadisaputra04/bookmark-manager-devops:10
 ```
 
-VM101 authenticates to GHCR using a separate pull-only credential with
-package read permission.
+This makes the deployed artifact directly traceable to the Jenkins build that produced it.
 
-This creates the intended permission separation:
+### PostgreSQL Startup
 
-``` text
-Jenkins
-  └── GHCR write
+The deployment starts PostgreSQL first:
 
-VM101
-  └── GHCR read
+```bash
+IMAGE_TAG="$IMAGE_TAG" docker compose -f compose.prod.yaml up -d postgres
 ```
 
-## Database Migration
+The deployment then waits for the PostgreSQL Docker healthcheck to report:
 
-Database migration is executed during deployment after PostgreSQL
-becomes healthy.
-
-The command is:
-
-``` bash
-IMAGE_TAG="$IMAGE_TAG" docker compose \
-  -f compose.prod.yaml \
-  run --rm -T api npm run migrate </dev/null
-```
-
-The migration runs using the same application image that is being
-deployed.
-
-This keeps the migration runtime aligned with the application runtime.
-
-The migration must complete successfully before the API and Worker are
-started.
-
-## PostgreSQL Health Validation
-
-The deployment waits for the PostgreSQL Docker healthcheck:
-
-``` bash
-docker inspect -f '{{.State.Health.Status}}' bookmark-postgres
-```
-
-The deployment continues only when:
-
-``` text
+```text
 healthy
 ```
 
-is reported.
+The deployment stops with an error if PostgreSQL does not become healthy within the configured retry period.
 
-A timeout is treated as a deployment failure.
+### Database Migration
 
-## API Health Validation
+After PostgreSQL becomes healthy, the migration is executed using the same application image being deployed:
 
-After API startup, the deployment waits for:
-
-``` text
-bookmark-api = healthy
+```bash
+IMAGE_TAG="$IMAGE_TAG" docker compose -f compose.prod.yaml run --rm -T api npm run migrate </dev/null
 ```
 
-The Docker healthcheck uses:
+Migration is completed before API and Worker startup.
 
-``` text
-GET /health/live
+This keeps the database schema aligned with the application version being deployed.
+
+### API Startup
+
+The API and Worker are started after the migration succeeds:
+
+```bash
+IMAGE_TAG="$IMAGE_TAG" docker compose -f compose.prod.yaml up -d api worker
 ```
 
-The deployment then explicitly checks both application endpoints.
+The deployment waits until the API Docker healthcheck reports:
 
-### Liveness
+```text
+healthy
+```
 
-``` text
+### API Liveness
+
+The deployment explicitly checks:
+
+```text
 /health/live
 ```
 
-Validation:
+The check is executed from inside the API container using Node.js:
 
-``` bash
+```bash
 docker exec bookmark-api node -e "
     require('http').get(
         'http://localhost:3000/health/live',
@@ -488,49 +315,47 @@ docker exec bookmark-api node -e "
 "
 ```
 
-### Readiness
+**Result: PASS**
 
-``` text
+Evidence: `docs/evidence/vm101-health-check.png`
+
+### API Readiness
+
+The deployment also checks:
+
+```text
 /health/ready
 ```
 
-Validation:
+This verifies that the API can access PostgreSQL rather than only confirming that the Node.js process is running.
 
-``` bash
-docker exec bookmark-api node -e "
-    require('http').get(
-        'http://localhost:3000/health/ready',
-        r => process.exit(r.statusCode === 200 ? 0 : 1)
-    ).on('error', () => process.exit(1))
-"
-```
+**Result: PASS**
 
-Readiness confirms that the API can communicate with PostgreSQL.
+Evidence: `docs/evidence/vm101-health-check.png`
 
-## Worker Validation
+### Worker Validation
 
-The Worker is not an HTTP service, so the deployment checks its
-container state:
+The Worker is not an HTTP service, so its runtime state is checked directly:
 
-``` bash
+```bash
 docker inspect -f '{{.State.Status}}' bookmark-worker
 ```
 
 Expected state:
 
-``` text
+```text
 running
 ```
 
-If the Worker is not running, the deployment fails and the recent Worker
-logs are displayed.
+If the Worker is not running, the deployment fails and recent Worker logs are displayed.
 
-## Image Verification
+**Result: PASS**
 
-The deployment explicitly verifies the image configured for the API and
-Worker:
+### Deployed Image Verification
 
-``` bash
+The deployment verifies the image used by API and Worker:
+
+```bash
 docker inspect bookmark-api \
   --format 'API image: {{.Config.Image}}'
 
@@ -538,135 +363,104 @@ docker inspect bookmark-worker \
   --format 'Worker image: {{.Config.Image}}'
 ```
 
-For Build #10, the expected image is:
+For Build #10, both application containers are expected to use image tag `:10`.
 
-``` text
-ghcr.io/agungadisaputra04/bookmark-manager-devops:10
-```
+**Result: PASS**
 
-This provides evidence that the VM is running the image produced by the
-corresponding Jenkins build.
+Evidence: `docs/evidence/vm101-deployment.png`
 
-## Successful Deployment --- Build #10
+## Successful Deployment — Build #10
 
-Build #10 completed the complete CI/CD flow successfully.
+Build #10 successfully completed the complete CI/CD flow.
 
-Validated stages:
+| Pipeline Stage | Result |
+|----------------|--------|
+| Checkout | PASS |
+| Install Dependencies | PASS |
+| Test | PASS |
+| Build Docker Image | PASS |
+| Push to GHCR | PASS |
+| Deploy | PASS |
 
-``` text
-Checkout             PASS
-Install Dependencies  PASS
-Test                  PASS
-Build Docker Image    PASS
-Push to GHCR          PASS
-Deploy                PASS
-```
+The final VM101 runtime state was:
 
-The application VM reported:
-
-``` text
+```text
 bookmark-api       Up (healthy)
 bookmark-worker    Up
 bookmark-postgres  Up (healthy)
 ```
 
-The deployed API and Worker used image tag:
+The API and Worker were running the image:
 
-``` text
-:10
+```text
+ghcr.io/agungadisaputra04/bookmark-manager-devops:10
 ```
 
-## Deployment Validation Results
+**Result: PASS**
 
-  Validation                    Result
-  ----------------------------- --------
-  GitHub checkout               PASS
-  Dependency installation       PASS
-  Application tests             PASS
-  Docker image build            PASS
-  GHCR image push               PASS
-  VM101 SSH deployment          PASS
-  PostgreSQL startup            PASS
-  PostgreSQL healthcheck        PASS
-  Database migration            PASS
-  API startup                   PASS
-  API liveness                  PASS
-  API readiness                 PASS
-  Worker startup                PASS
-  Deployed image verification   PASS
+Evidence:
 
-## Evidence
+- `docs/evidence/jenkins-pipeline-success.png`
+- `docs/evidence/jenkins-deploy-console.png`
+- `docs/evidence/ghcr-image-10.png`
+- `docs/evidence/vm101-deployment.png`
+- `docs/evidence/vm101-health-check.png`
 
-The CI/CD implementation is supported by the following repository
-evidence:
+## Deployment Validation
 
-  --------------------------------------------------------------------------------
-  Evidence                                       Purpose
-  ---------------------------------------------- ---------------------------------
-  `docs/evidence/jenkins-pipeline-success.png`   Jenkins pipeline stages completed
-                                                 successfully
-
-  `docs/evidence/jenkins-deploy-console.png`     Deployment console output and
-                                                 validation results
-
-  `docs/evidence/ghcr-image-10.png`              Image tag `:10` published to GHCR
-
-  `docs/evidence/vm101-deployment.png`           VM101 production containers and
-                                                 deployed image
-
-  `docs/evidence/vm101-health-check.png`         API health validation on the
-                                                 deployment target
-  --------------------------------------------------------------------------------
+| Validation | Result |
+|------------|--------|
+| GitHub checkout | PASS |
+| Dependency installation | PASS |
+| Application tests | PASS |
+| Docker image build | PASS |
+| GHCR image push | PASS |
+| VM101 SSH deployment | PASS |
+| PostgreSQL startup | PASS |
+| PostgreSQL healthcheck | PASS |
+| Database migration | PASS |
+| API startup | PASS |
+| API liveness | PASS |
+| API readiness | PASS |
+| Worker startup | PASS |
+| Deployed image verification | PASS |
 
 ## Troubleshooting: Remote Migration Command
 
-An earlier deployment attempt exposed an issue with the SSH heredoc used
-by the Jenkins deployment script.
+An earlier deployment attempt exposed an issue with the SSH heredoc used by the Jenkins deployment script.
 
-The migration command originally used:
+The original migration command was:
 
-``` bash
+```bash
 docker compose -f compose.prod.yaml run --rm api npm run migrate
 ```
 
-`docker compose run` keeps standard input attached by default.
+`docker compose run` keeps standard input attached by default. Because the command was executed inside an SSH heredoc, it consumed the remaining heredoc input and the remote deployment script terminated before the remaining deployment steps executed.
 
-Because the command was executed inside an SSH heredoc, the command
-consumed the remaining heredoc input. The remote deployment script
-therefore terminated before executing the remaining deployment steps.
+The corrected command is:
 
-The Jenkins build could appear successful even though the application
-deployment had not completed.
-
-The fix was:
-
-``` bash
+```bash
 docker compose -f compose.prod.yaml run --rm -T api npm run migrate </dev/null
 ```
 
-Two details are important:
+The fix uses two controls:
 
--   `-T` disables pseudo-TTY allocation
--   `</dev/null` prevents the Compose command from consuming the SSH
-    heredoc input
+- `-T` disables pseudo-TTY allocation
+- `</dev/null` prevents the Compose command from consuming SSH heredoc input
 
-The deployment script was also changed to explicitly propagate the image
-tag:
+The deployment commands were also changed to explicitly propagate the Jenkins image tag:
 
-``` bash
+```bash
 IMAGE_TAG="$IMAGE_TAG" docker compose ...
 ```
-
-This ensures every Compose operation uses the image tag generated by the
-current Jenkins build.
 
 The corrected pipeline was validated successfully by Build #10.
 
 ## Security Considerations
 
-The pipeline separates credentials by responsibility.
+Credential access is separated by responsibility:
 
-``` text
+```text
 GitHub SSH key
     → source checkout
 
@@ -680,14 +474,11 @@ VM101 GHCR read-only token
     → image pull
 ```
 
-Secrets are not stored in Git.
+Secrets are not committed to Git.
 
-The production JWT secret is stored in the VM101 environment file.
+The production JWT secret is stored on VM101 in the runtime environment file and is not included in the repository.
 
-The Jenkins pipeline obtains the GHCR token through Jenkins credential
-binding.
-
-The VM101 deployment does not receive Jenkins' GHCR write credential.
+The Jenkins GHCR write credential is not copied to VM101.
 
 ## Engineering Decisions
 
@@ -695,24 +486,23 @@ The VM101 deployment does not receive Jenkins' GHCR write credential.
 
 Jenkins runs on VM102 while the application runs on VM101.
 
-This provides separation between:
+```text
+VM102
+Jenkins / CI/CD
 
-``` text
-CI/CD infrastructure
         ≠
+
+VM101
 Application runtime
 ```
 
-A CI failure or Jenkins maintenance therefore does not require the
-application containers to run on the same VM.
+This separates CI infrastructure from the production-like application runtime.
 
 ### Immutable Build Tags
 
-Jenkins build numbers are used as image tags.
+Jenkins build numbers are used as Docker image tags:
 
-Example:
-
-``` text
+```text
 Build #10
     ↓
 image:10
@@ -722,37 +512,33 @@ This makes the deployed artifact traceable to a specific CI execution.
 
 ### Migration Before Application Startup
 
-The deployment runs the database migration after PostgreSQL is healthy
-and before starting API and Worker.
+The database migration runs after PostgreSQL becomes healthy and before API and Worker startup.
 
-This creates an explicit deployment sequence rather than relying on
-application startup to implicitly prepare the database.
+This makes the deployment sequence explicit and prevents the application from starting against an unprepared schema.
 
-### Deployment Verification
+### Post-Deployment Verification
 
 The pipeline does not stop after `docker compose up`.
 
 It verifies:
 
--   PostgreSQL health
--   API health
--   API liveness
--   API readiness
--   Worker runtime state
--   deployed image tag
--   final Compose status
+- PostgreSQL health
+- API health
+- API liveness
+- API readiness
+- Worker runtime state
+- deployed image tag
+- final Compose status
 
-This reduces the chance of reporting a successful deployment when the
-runtime is actually unhealthy.
+This prevents a deployment from being considered successful when the runtime is not actually healthy.
 
 ## Conclusion
 
-The Bookmark Manager project now has a working CI/CD delivery path from
-source control to the application VM.
+The Bookmark Manager project now has a validated CI/CD delivery path from GitHub to the application VM.
 
-The validated flow is:
+The complete flow is:
 
-``` text
+```text
 GitHub
   ↓
 Jenkins VM102
@@ -774,23 +560,14 @@ API + Worker + PostgreSQL
 Health & Deployment Verification
 ```
 
-Build #10 successfully demonstrated the complete flow using image tag
-`:10`.
+Build #10 successfully demonstrated the complete flow using image tag `:10`.
 
-The project has therefore progressed from:
+The project has progressed from:
 
-``` text
-Developer handoff
-      ↓
-Baseline validation
-      ↓
-Docker containerization
-      ↓
-CI/CD
-      ↓
-Remote application deployment
-```
+- Developer handoff
+- Baseline validation
+- Docker containerization
+- CI/CD
+- Remote application deployment
 
-The next planned engineering stage is networking and reverse proxy
-configuration, followed by TLS/HTTPS, security hardening, observability,
-Kubernetes, and scaling.
+The next planned engineering stage is **Networking & Reverse Proxy**, followed by TLS/HTTPS, security hardening, logging and monitoring, Kubernetes, and scaling.
