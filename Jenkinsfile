@@ -136,11 +136,11 @@ IMAGE_TAG="$IMAGE_TAG" docker compose \
     -f compose.prod.yaml \
     run --rm -T api npm run migrate </dev/null
 
-echo "Starting API and Worker..."
+echo "Starting API, Worker, and Nginx..."
 
 IMAGE_TAG="$IMAGE_TAG" docker compose \
     -f compose.prod.yaml \
-    up -d api worker
+    up -d api worker nginx
 
 echo "Waiting for API..."
 
@@ -190,6 +190,18 @@ docker exec bookmark-api node -e "
 
 echo "API readiness check passed."
 
+echo "Checking API through Nginx..."
+
+curl -f http://localhost/health/live
+
+echo "Nginx liveness proxy check passed."
+
+echo "Checking readiness through Nginx..."
+
+curl -f http://localhost/health/ready
+
+echo "Nginx readiness proxy check passed."
+
 echo "Checking Worker..."
 
 worker_status=$(docker inspect \
@@ -203,6 +215,20 @@ if [ "$worker_status" != "running" ]; then
 fi
 
 echo "Worker is running."
+
+echo "Checking Nginx..."
+
+nginx_status=$(docker inspect \
+    -f '{{.State.Status}}' \
+    bookmark-nginx 2>/dev/null || true)
+
+if [ "$nginx_status" != "running" ]; then
+    echo "ERROR: Nginx is not running."
+    docker logs --tail 50 bookmark-nginx || true
+    exit 1
+fi
+
+echo "Nginx is running."
 
 echo "Verifying deployed images..."
 
