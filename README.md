@@ -193,7 +193,7 @@ Local Docker Validation      ← completed
 CI/CD & Application Deploy   ← completed
        │
        ▼
-Networking & Reverse Proxy   ← planned
+Networking & Reverse Proxy   ← completed
        │
        ▼
 TLS / HTTPS                  ← planned
