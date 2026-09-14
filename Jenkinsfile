@@ -134,7 +134,7 @@ echo "Running database migration..."
 
 IMAGE_TAG="$IMAGE_TAG" docker compose \
     -f compose.prod.yaml \
-    run --rm api npm run migrate
+    run --rm -T api npm run migrate </dev/null
 
 echo "Starting API and Worker..."
 
