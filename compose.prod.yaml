@@ -5,9 +5,9 @@ services:
     container_name: bookmark-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: bookmark_manager
-      POSTGRES_USER: bookmark_user
-      POSTGRES_PASSWORD: bookmark_pass
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - bookmark-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -26,10 +26,12 @@ services:
     image: ghcr.io/agungadisaputra04/bookmark-manager-devops:${IMAGE_TAG:-latest}
     container_name: bookmark-api
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     environment:
       PORT: 3000
       NODE_ENV: production
-      DATABASE_URL: postgres://bookmark_user:bookmark_pass@postgres:5432/bookmark_manager
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       PGSSL: "false"
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: 1h
@@ -64,9 +66,11 @@ services:
     image: ghcr.io/agungadisaputra04/bookmark-manager-devops:${IMAGE_TAG:-latest}
     container_name: bookmark-worker
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgres://bookmark_user:bookmark_pass@postgres:5432/bookmark_manager
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       PGSSL: "false"
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: 1h
@@ -91,6 +95,8 @@ services:
     image: nginx:alpine
     container_name: bookmark-nginx
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "80:80"
       - "443:443"
