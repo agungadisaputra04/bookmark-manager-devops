@@ -74,7 +74,7 @@ The project is developed incrementally through the following stages.
 | 3 | CI/CD & application deployment | **Completed** — [`docs/cicd-validation.md`](./docs/cicd-validation.md) |
 | 4 | Networking & reverse proxy | **Completed** — [`docs/networking-reverse-proxy.md`](./docs/networking-reverse-proxy.md) |
 | 5 | TLS / HTTPS | **Completed** — [`docs/tls-https.md`](./docs/tls-https.md) |
-| 6 | Security hardening | Planned |
+| 6 | Security hardening | **Completed** — [`docs/security-hardening.md`](./docs/security-hardening.md) |
 | 7 | Logging & monitoring | Planned |
 | 8 | Kubernetes deployment | Planned |
 | 9 | Scaling & operations | Planned |
@@ -199,7 +199,7 @@ Networking & Reverse Proxy   ← completed
 TLS / HTTPS                  ← completed
        │
        ▼
-Security Hardening           ← planned
+Security Hardening           ← completed
        │
        ▼
 Observability                ← planned
