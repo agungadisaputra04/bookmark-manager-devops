@@ -75,7 +75,7 @@ The project is developed incrementally through the following stages.
 | 4 | Networking & reverse proxy | **Completed** — [`docs/networking-reverse-proxy.md`](./docs/networking-reverse-proxy.md) |
 | 5 | TLS / HTTPS | **Completed** — [`docs/tls-https.md`](./docs/tls-https.md) |
 | 6 | Security hardening | **Completed** — [`docs/security-hardening.md`](./docs/security-hardening.md) |
-| 7 | Logging & monitoring | Planned |
+| 7 | Logging & monitoring | **Completed** — [`docs/monitoring.md`](https://github.com/agungadisaputra04/monitoring-stack/blob/main/docs/monitoring.md) |
 | 8 | Kubernetes deployment | Planned |
 | 9 | Scaling & operations | Planned |
 
@@ -202,7 +202,7 @@ TLS / HTTPS                  ← completed
 Security Hardening           ← completed
        │
        ▼
-Observability                ← planned
+Observability                ← completed
        │
        ▼
 Kubernetes                   ← planned
