@@ -14,6 +14,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@prometheus-io/client": "^0.16.1",
     "bcryptjs": "^2.4.3",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
